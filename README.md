@@ -58,7 +58,3 @@ npm run preview
 - The app is frontend-only and stores chat data locally in the browser.
 - The app includes model fallback support and avoids deprecated Groq models.
 - Use the browser install prompt to enable PWA behavior.
-
-## License
-
-MIT
