@@ -39,20 +39,6 @@ export default defineConfig({
           }
         ],
         categories: ['productivity', 'utilities'],
-        screenshots: [
-          {
-            src: '/icons/Lina AI.png',
-            sizes: '512x512',
-            type: 'image/png',
-            form_factor: 'wide'
-          },
-          {
-            src: '/icons/Lina AI.png',
-            sizes: '512x512',
-            type: 'image/png',
-            form_factor: 'narrow'
-          }
-        ],
         shortcuts: [
           {
             name: 'New Chat',
@@ -70,16 +56,18 @@ export default defineConfig({
         ]
       },
       workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        navigateFallback: 'index.html',
+        // Do NOT intercept streaming API calls like Groq or weather APIs
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/.*/,
-            handler: 'NetworkFirst',
+            urlPattern: /^https:\/\/(?:fonts\.googleapis\.com|fonts\.gstatic\.com).*/i,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'lina-ai-runtime-cache',
-              networkTimeoutSeconds: 10,
+              cacheName: 'google-fonts-cache',
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 7 * 24 * 60 * 60
+                maxEntries: 20,
+                maxAgeSeconds: 365 * 24 * 60 * 60
               },
               cacheableResponse: {
                 statuses: [0, 200]

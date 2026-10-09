@@ -13,10 +13,11 @@ interface SettingsState {
 const DEFAULT_SETTINGS: AppSettings = {
   id: 'settings',
   theme: 'dark',
-  model: 'llama-3.1-70b-versatile',
+  // Use a currently supported model from Groq
+  model: 'llama-3.1-8b-instant',
   systemPrompt: 'You are Lina AI, an intelligent, helpful, professional and friendly AI assistant. You are concise, accurate, and always aim to provide the most useful response possible.',
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 2048,
   voiceEnabled: false,
   voiceName: 'default',
   voiceRate: 1,
@@ -30,13 +31,30 @@ export const useSettingsStore = create<SettingsState>()(
     settings: DEFAULT_SETTINGS,
     loading: true,
     loadSettings: async () => {
-      const stored = await getAppSettings();
-      set({ settings: stored ?? DEFAULT_SETTINGS, loading: false });
+      try {
+        const stored = await getAppSettings();
+        const effective = stored ?? DEFAULT_SETTINGS;
+        // Migrate deprecated models to the supported default
+        if (effective.model === 'llama-3.1-70b-versatile' || effective.model === 'llama-3.3-70b-versatile') {
+          effective.model = DEFAULT_SETTINGS.model;
+        }
+        set({ settings: effective, loading: false });
+      } catch {
+        set({ settings: DEFAULT_SETTINGS, loading: false });
+      }
     },
     setSettings: async (update) => {
-      await saveAppSettings(update);
-      const settings = await getAppSettings();
-      set({ settings: settings ?? { ...DEFAULT_SETTINGS, ...update } });
+      try {
+        const sanitized = { ...update };
+        if (sanitized.model === 'llama-3.1-70b-versatile' || sanitized.model === 'llama-3.3-70b-versatile') {
+          sanitized.model = DEFAULT_SETTINGS.model;
+        }
+        await saveAppSettings(sanitized);
+        const settings = await getAppSettings();
+        set({ settings: settings ?? { ...DEFAULT_SETTINGS, ...sanitized } });
+      } catch (err) {
+        console.error('Failed to set settings:', err);
+      }
     },
   }))
 );

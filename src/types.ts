@@ -1,4 +1,4 @@
-export type Role = 'user' | 'assistant' | 'system';
+export type Role = 'user' | 'assistant' | 'system' | 'tool';
 
 export interface UserProfile {
   id: string;
@@ -42,4 +42,6 @@ export interface Message {
   createdAt: number;
   edited: boolean;
   status: 'sent' | 'pending' | 'error' | 'streaming';
+  tool_call_id?: string;
+  tool_calls?: any[];
 }

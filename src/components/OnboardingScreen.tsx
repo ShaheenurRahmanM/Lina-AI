@@ -27,7 +27,7 @@ function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const [apiKey, setApiKey] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [systemPrompt, setSystemPrompt] = useState('You are Lina AI, an intelligent, helpful, professional and friendly AI assistant.');
-  const [model, setModel] = useState('llama-3.1-70b-versatile');
+  const [model, setModel] = useState('llama-3.3-70b-versatile');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [voiceName, setVoiceName] = useState('default');
   const [voiceRate, setVoiceRate] = useState(1.0);
@@ -142,8 +142,9 @@ function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                 onChange={(event) => setModel(event.target.value)}
                 className="mt-3 w-full rounded-[2rem] border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 px-6 py-4 text-slate-900 dark:text-slate-100 outline-none transition-all focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500/50 font-medium"
               >
-                <option value="llama-3.1-70b-versatile">Llama 3.1 70B (Recommended)</option>
-                <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (Faster)</option>
+                <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Recommended)</option>
+                <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (Ultra Fast)</option>
+                <option value="mixtral-8x7b-32768">Mixtral 8x7B (32k Context)</option>
               </select>
             </label>
             <label className="block">

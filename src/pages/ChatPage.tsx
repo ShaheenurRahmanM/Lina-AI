@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Plus, AlertCircle, RefreshCw } from 'lucide-react';
 import { Conversation, Message } from '../types';
 import { useChatStore } from '../store/chatStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -18,11 +18,12 @@ interface ChatPageProps {
 }
 
 function ChatPage({ conversation, online }: ChatPageProps) {
-  const { messages, addMessage, refreshMessages, updateMessageContent } = useChatStore();
+  const { messages, addMessage, refreshMessages, updateMessageContent, addConversation } = useChatStore();
   const { settings } = useSettingsStore();
   const [draft, setDraft] = useState('');
   const [generating, setGenerating] = useState(false);
   const [streamedText, setStreamedText] = useState('');
+  const [lastError, setLastError] = useState<string | null>(null);
   const [voiceModeActive, setVoiceModeActive] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -39,7 +40,11 @@ function ChatPage({ conversation, online }: ChatPageProps) {
 
   // Auto-scroll to bottom on new messages / streaming
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    try {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } catch {
+      // ignore
+    }
   }, [activeMessages.length, streamedText]);
 
   const handleSend = async (content?: string) => {
@@ -53,6 +58,7 @@ function ChatPage({ conversation, online }: ChatPageProps) {
     setGenerating(true);
     setStreamedText('');
     setDraft('');
+    setLastError(null);
 
     // Add user message first so it appears immediately
     const userMessage = await addMessage({
@@ -61,7 +67,7 @@ function ChatPage({ conversation, online }: ChatPageProps) {
       content: payload,
     });
 
-    // Build history including the new user message
+    // Build history including system prompt and recent messages
     const history: Message[] = [
       {
         id: 'sys',
@@ -81,17 +87,18 @@ function ChatPage({ conversation, online }: ChatPageProps) {
     try {
       await streamResponse(
         history,
-        conversation.model || settings.model,
+        conversation.model || settings.model || 'llama-3.3-70b-versatile',
         (chunk) => {
           currentStream += chunk;
           setStreamedText(currentStream);
         },
         (errorMessage) => {
+          setLastError(errorMessage);
           toast.error(errorMessage, { duration: 6000 });
         },
         {
-          temperature: conversation.temperature ?? settings.temperature,
-          maxTokens: conversation.maxTokens ?? settings.maxTokens,
+          temperature: conversation.temperature ?? settings.temperature ?? 0.7,
+          maxTokens: conversation.maxTokens ?? settings.maxTokens ?? 2048,
         }
       );
 
@@ -101,6 +108,7 @@ function ChatPage({ conversation, online }: ChatPageProps) {
           role: 'assistant',
           content: currentStream,
         });
+
         if (settings.voiceEnabled && voiceModeActive) {
           speak(currentStream, {
             voiceName: settings.voiceName,
@@ -113,7 +121,9 @@ function ChatPage({ conversation, online }: ChatPageProps) {
       }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        toast.error((error as Error).message || 'Something went wrong. Please try again.');
+        const msg = (error as Error).message || 'Something went wrong. Please check your API key.';
+        setLastError(msg);
+        toast.error(msg);
       }
     } finally {
       setStreamedText('');
@@ -151,14 +161,23 @@ function ChatPage({ conversation, online }: ChatPageProps) {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-500">
             <Sparkles size={32} />
           </div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">No conversation</h2>
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            Open the sidebar and create a new chat to get started.
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">No session selected</h2>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 mb-6">
+            Start a fresh conversation to begin exploring ideas and answers.
           </p>
+          <button
+            type="button"
+            onClick={() => addConversation()}
+            className="inline-flex items-center gap-2 rounded-2xl bg-sky-500 hover:bg-sky-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition-all active:scale-95"
+          >
+            <Plus size={16} /> Start New Chat
+          </button>
         </div>
       </div>
     );
   }
+
+  const visibleMessages = activeMessages.filter((m) => m.role !== 'system' && m.role !== 'tool');
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
@@ -174,7 +193,7 @@ function ChatPage({ conversation, online }: ChatPageProps) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-          <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">
+          <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block font-mono">
             {conversation.model || settings.model}
           </span>
         </div>
@@ -186,19 +205,17 @@ function ChatPage({ conversation, online }: ChatPageProps) {
         className="flex-1 overflow-y-auto custom-scrollbar"
       >
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-6 space-y-4 sm:space-y-6">
-          {activeMessages.length === 0 && !generating && (
+          {visibleMessages.length === 0 && !generating && (
             <EmptyChatScreen onPromptSelect={(p) => handleSend(p)} />
           )}
 
-          {activeMessages
-            .filter((m) => m.role !== 'system')
-            .map((message) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                onEdit={(content) => updateMessageContent(message.id, content)}
-              />
-            ))}
+          {visibleMessages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              message={message}
+              onEdit={(content) => updateMessageContent(message.id, content)}
+            />
+          ))}
 
           {/* Streaming response */}
           {streamedText && (
@@ -218,6 +235,23 @@ function ChatPage({ conversation, online }: ChatPageProps) {
 
           {/* Typing indicator before first chunk */}
           {generating && !streamedText && <TypingIndicator label="Thinking…" />}
+
+          {/* Error & retry state */}
+          {lastError && !generating && (
+            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-4 text-rose-300 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                <span className="truncate">{lastError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 px-3 py-1.5 text-xs font-semibold text-rose-200 transition-all shrink-0"
+              >
+                <RefreshCw size={12} /> Retry
+              </button>
+            </div>
+          )}
 
           <div ref={messagesEndRef} />
         </div>

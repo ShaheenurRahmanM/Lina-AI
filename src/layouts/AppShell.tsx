@@ -52,11 +52,16 @@ function AppShell({ onOpenSettings, profile }: AppShellProps) {
 
   const handleInstall = async () => {
     if (!installPromptEvent) return;
-    await installPromptEvent.prompt();
-    const choice = await installPromptEvent.userChoice;
-    setShowInstallPrompt(false);
-    if (choice.outcome === 'accepted') {
-      console.log('PWA install accepted.');
+    try {
+      await installPromptEvent.prompt();
+      const choice = await installPromptEvent.userChoice;
+      setShowInstallPrompt(false);
+      if (choice.outcome === 'accepted') {
+        console.log('PWA install accepted.');
+      }
+    } catch (err) {
+      console.warn('Install prompt error:', err);
+      setShowInstallPrompt(false);
     }
   };
 

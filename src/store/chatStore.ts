@@ -6,13 +6,14 @@ import {
   deleteConversation,
   getAppSettings,
   getConversationHistory,
-  saveAppSettings,
   updateConversation,
   updateMessage,
   createMessage
 } from '../db/client';
 import { db } from '../db/schema';
 import { nanoid } from '../utils/format';
+
+const DEFAULT_MODEL = 'llama-3.1-8b-instant';
 
 interface ChatState {
   conversations: Conversation[];
@@ -23,8 +24,8 @@ interface ChatState {
   filteredConversations: Conversation[];
   setQuery: (value: string) => void;
   loadConversations: () => Promise<void>;
-  setActiveConversation: (conversationId: string) => void;
-  addConversation: () => Promise<void>;
+  setActiveConversation: (conversationId: string) => Promise<void>;
+  addConversation: () => Promise<Conversation>;
   renameConversation: (conversationId: string, title: string) => Promise<void>;
   togglePin: (conversationId: string) => Promise<void>;
   removeConversation: (conversationId: string) => Promise<void>;
@@ -57,52 +58,77 @@ export const useChatStore = create<ChatState>()(
       set({ query: value, filteredConversations: filtered });
     },
     loadConversations: async () => {
-      const settings = await getAppSettings();
-      const conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
-      const activeConversationId = conversations[0]?.id ?? null;
-      let messages: Message[] = [];
-      if (activeConversationId) {
-        messages = await getConversationHistory(activeConversationId);
-      }
-      set({
-        conversations,
-        messages,
-        activeConversationId,
-        loading: false,
-        filteredConversations: filterConversations(conversations, get().query),
-        query: ''
-      });
-      if (!activeConversationId) {
-        const conversation = await createConversation('New chat', settings?.systemPrompt ?? '', settings?.model ?? 'llama-3.1-70b-versatile');
-        const conversationsAfter = [conversation];
+      try {
+        const settings = await getAppSettings();
+        let conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
+
+        // Migrate any old conversations with decommissioned model
+        for (const conv of conversations) {
+          if (conv.model === 'llama-3.1-70b-versatile') {
+            conv.model = DEFAULT_MODEL;
+            await db.conversations.update(conv.id, { model: DEFAULT_MODEL }).catch(() => {});
+          }
+        }
+
+        if (conversations.length === 0) {
+          const newConv = await createConversation(
+            'New chat',
+            settings?.systemPrompt ?? '',
+            settings?.model ?? DEFAULT_MODEL
+          );
+          conversations = [newConv];
+        }
+
+        const activeId = conversations[0]?.id ?? null;
+        let messages: Message[] = [];
+        if (activeId) {
+          messages = await getConversationHistory(activeId);
+        }
+
         set({
-          conversations: conversationsAfter,
-          activeConversationId: conversation.id,
-          filteredConversations: filterConversations(conversationsAfter, get().query)
+          conversations,
+          messages,
+          activeConversationId: activeId,
+          loading: false,
+          filteredConversations: filterConversations(conversations, get().query),
+          query: '',
         });
+      } catch (err) {
+        console.error('Failed to load conversations:', err);
+        set({ loading: false });
       }
     },
-    setActiveConversation: async (conversationId) => {
-      const messages = await getConversationHistory(conversationId);
-      set({ activeConversationId: conversationId, messages });
+    setActiveConversation: async (conversationId: string) => {
+      try {
+        const messages = await getConversationHistory(conversationId);
+        set({ activeConversationId: conversationId, messages });
+      } catch (err) {
+        console.error('Failed to set active conversation:', err);
+      }
     },
     addConversation: async () => {
       const settings = await getAppSettings();
-      const conversation = await createConversation('New chat', settings?.systemPrompt ?? '', settings?.model ?? 'llama-3.3-70b-versatile');
+      const conversation = await createConversation(
+        'New chat',
+        settings?.systemPrompt ?? '',
+        settings?.model ?? DEFAULT_MODEL
+      );
       const conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
       set({
         conversations,
         activeConversationId: conversation.id,
         messages: [],
-        filteredConversations: filterConversations(conversations, get().query)
+        filteredConversations: filterConversations(conversations, get().query),
       });
+      return conversation;
     },
     renameConversation: async (conversationId, title) => {
-      await updateConversation({ id: conversationId, title });
+      const cleanTitle = title.trim() || 'Untitled chat';
+      await updateConversation({ id: conversationId, title: cleanTitle });
       const conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
       set({
         conversations,
-        filteredConversations: filterConversations(conversations, get().query)
+        filteredConversations: filterConversations(conversations, get().query),
       });
     },
     togglePin: async (conversationId) => {
@@ -113,36 +139,66 @@ export const useChatStore = create<ChatState>()(
       const conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
       set({
         conversations,
-        filteredConversations: filterConversations(conversations, get().query)
+        filteredConversations: filterConversations(conversations, get().query),
       });
     },
     removeConversation: async (conversationId) => {
       await deleteConversation(conversationId);
       const conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
-      const nextActive = conversations[0]?.id ?? null;
+      let nextActive = conversations[0]?.id ?? null;
+
+      // If user deleted the last conversation, automatically create a fresh one
+      if (!nextActive) {
+        const settings = await getAppSettings();
+        const fresh = await createConversation(
+          'New chat',
+          settings?.systemPrompt ?? '',
+          settings?.model ?? DEFAULT_MODEL
+        );
+        conversations.push(fresh);
+        nextActive = fresh.id;
+      }
+
       let messages: Message[] = [];
       if (nextActive) messages = await getConversationHistory(nextActive);
+
       set({
         conversations,
         activeConversationId: nextActive,
         messages,
-        filteredConversations: filterConversations(conversations, get().query)
+        filteredConversations: filterConversations(conversations, get().query),
       });
     },
     addMessage: async ({ conversationId, role, content }) => {
-      const message = {
+      const message: Message = {
         id: nanoid(),
         conversationId,
         role,
         content,
         createdAt: Date.now(),
         edited: false,
-        status: 'pending' as const
+        status: 'sent',
       };
+
       await createMessage(message);
-      await updateConversation({ id: conversationId, updatedAt: Date.now() });
+
+      // Auto-title conversation on first user message if title is default
+      if (role === 'user') {
+        const currentConv = await db.conversations.get(conversationId);
+        if (currentConv && (currentConv.title === 'New chat' || currentConv.title === 'New Conversation' || !currentConv.title)) {
+          const autoTitle = content.trim().slice(0, 36) + (content.length > 36 ? '…' : '');
+          await updateConversation({ id: conversationId, title: autoTitle, updatedAt: Date.now() });
+        } else {
+          await updateConversation({ id: conversationId, updatedAt: Date.now() });
+        }
+      } else {
+        await updateConversation({ id: conversationId, updatedAt: Date.now() });
+      }
+
       const messages = await getConversationHistory(conversationId);
-      set({ messages, conversations: await db.conversations.orderBy('updatedAt').reverse().toArray() });
+      const conversations = await db.conversations.orderBy('updatedAt').reverse().toArray();
+
+      set({ messages, conversations, filteredConversations: filterConversations(conversations, get().query) });
       return message;
     },
     updateMessageContent: async (messageId, content) => {
@@ -163,7 +219,15 @@ export const useChatStore = create<ChatState>()(
     clearAllConversations: async () => {
       await db.conversations.clear();
       await db.messages.clear();
-      set({ conversations: [], activeConversationId: null, messages: [] });
-    }
+      // Create one fresh default conversation
+      const settings = await getAppSettings();
+      const fresh = await createConversation('New chat', settings?.systemPrompt ?? '', settings?.model ?? DEFAULT_MODEL);
+      set({
+        conversations: [fresh],
+        activeConversationId: fresh.id,
+        messages: [],
+        filteredConversations: [fresh],
+      });
+    },
   }))
 );

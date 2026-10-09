@@ -23,11 +23,23 @@ function MarkdownRenderer({ content }: MarkdownRendererProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          code: ({ inline, className, children, ...props }: any) => (
-            <CodeBlock inline={inline} className={className}>
-              {children as string | string[]}
-            </CodeBlock>
-          ),
+          code: ({ inline, className, children, ...props }: any) => {
+            const codeText = Array.isArray(children)
+              ? children.join('')
+              : typeof children === 'string'
+              ? children
+              : String(children ?? '');
+
+            const hasLang = /language-(\w+)/.test(className || '');
+            const isMultiLine = codeText.includes('\n');
+            const isInline = inline ?? (!hasLang && !isMultiLine);
+
+            return (
+              <CodeBlock inline={isInline} className={className}>
+                {codeText}
+              </CodeBlock>
+            );
+          },
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noreferrer">
               {children}

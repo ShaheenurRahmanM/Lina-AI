@@ -18,21 +18,25 @@ export interface ToolResult {
 
 export async function executeTool(toolCall: ToolCall): Promise<ToolResult> {
   const { function: func } = toolCall;
-  const name = func.name;
+  const name = func?.name || 'unknown';
 
   try {
-    let args: Record<string, any>;
-    try {
-      args = JSON.parse(func.arguments);
-    } catch {
-      args = func.arguments as unknown as Record<string, any>;
+    let args: Record<string, any> = {};
+    if (typeof func?.arguments === 'object' && func.arguments !== null) {
+      args = func.arguments;
+    } else if (typeof func?.arguments === 'string' && func.arguments.trim()) {
+      try {
+        args = JSON.parse(func.arguments);
+      } catch {
+        args = {};
+      }
     }
 
     let result: any;
 
     switch (name) {
       case 'get_weather': {
-        const location = args.location;
+        const location = args.location || 'London';
         const units = (args.units || 'celsius') as 'celsius' | 'fahrenheit';
         result = await getWeather(location, units);
         return {
@@ -43,9 +47,9 @@ export async function executeTool(toolCall: ToolCall): Promise<ToolResult> {
       }
 
       case 'get_news': {
-        const query = args.query;
+        const query = args.query || 'technology';
         const category = args.category;
-        const limit = Math.min(parseInt(args.limit || '5'), 10);
+        const limit = Math.min(parseInt(String(args.limit || '5'), 10) || 5, 10);
         result = await getNews(query, category, limit);
         return {
           tool_call_id: toolCall.id,
@@ -74,12 +78,23 @@ export async function executeTool(toolCall: ToolCall): Promise<ToolResult> {
             content: JSON.stringify(result),
           };
         } catch {
-          throw new Error(`Invalid timezone: ${timezone}`);
+          // If timezone is invalid, fallback to local and UTC
+          const localTime = new Date().toLocaleString('en-US');
+          result = { timezone: 'Local', time: localTime, timestamp: new Date().toISOString() };
+          return {
+            tool_call_id: toolCall.id,
+            role: 'tool',
+            content: JSON.stringify(result),
+          };
         }
       }
 
       default:
-        throw new Error(`Unknown tool: ${name}`);
+        return {
+          tool_call_id: toolCall.id,
+          role: 'tool',
+          content: JSON.stringify({ error: `Tool ${name} is not implemented.` }),
+        };
     }
   } catch (error) {
     return {

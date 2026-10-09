@@ -10,47 +10,57 @@ export interface WeatherData {
   lastUpdated: string;
 }
 
+function safeFetch(url: string, timeoutMs: number = 6000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 export async function getWeather(
   location: string,
   units: 'celsius' | 'fahrenheit' = 'celsius'
 ): Promise<WeatherData> {
+  const queryLoc = (location || '').trim();
+  if (!queryLoc) {
+    throw new Error('Please provide a valid location name.');
+  }
+
   try {
-    // First, geocode the location
-    const geoResponse = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`,
-      { signal: AbortSignal.timeout(5000) }
+    // 1. Geocode the location
+    const geoResponse = await safeFetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(queryLoc)}&count=1&language=en&format=json`
     );
 
-    if (!geoResponse.ok) throw new Error('Location not found');
+    if (!geoResponse.ok) throw new Error('Location search request failed');
 
     const geoData = await geoResponse.json();
     if (!geoData.results || geoData.results.length === 0) {
-      throw new Error(`Location "${location}" not found. Please try a different location.`);
+      throw new Error(`Location "${queryLoc}" not found. Please try a major city name.`);
     }
 
     const { latitude, longitude, name, admin1, country } = geoData.results[0];
-    const displayName = `${name}${admin1 ? ', ' + admin1 : ''}, ${country}`;
+    const displayName = `${name}${admin1 ? ', ' + admin1 : ''}${country ? ', ' + country : ''}`;
 
-    // Then, get weather for that location
+    // 2. Fetch current weather for coordinates
     const temperatureUnit = units === 'fahrenheit' ? 'fahrenheit' : 'celsius';
-    const weatherResponse = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m&temperature_unit=${temperatureUnit}&timezone=auto`,
-      { signal: AbortSignal.timeout(5000) }
+    const weatherResponse = await safeFetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m&temperature_unit=${temperatureUnit}&timezone=auto`
     );
 
-    if (!weatherResponse.ok) throw new Error('Unable to fetch weather data');
+    if (!weatherResponse.ok) throw new Error('Weather data could not be retrieved from Open-Meteo.');
 
     const weatherData = await weatherResponse.json();
     const current = weatherData.current;
 
-    // Convert WMO weather codes to descriptions
+    if (!current) throw new Error('Current weather conditions are unavailable for this location.');
+
     const weatherDescriptions: Record<number, string> = {
       0: 'Clear sky',
       1: 'Mainly clear',
       2: 'Partly cloudy',
       3: 'Overcast',
       45: 'Foggy',
-      48: 'Foggy',
+      48: 'Depositing rime fog',
       51: 'Light drizzle',
       53: 'Moderate drizzle',
       55: 'Dense drizzle',
@@ -73,15 +83,15 @@ export async function getWeather(
 
     return {
       location: displayName,
-      temperature: current.temperature_2m,
-      condition: weatherDescriptions[current.weather_code] || 'Unknown',
+      temperature: Math.round(current.temperature_2m * 10) / 10,
+      condition: weatherDescriptions[current.weather_code] || 'Clear',
       humidity: current.relative_humidity_2m,
       windSpeed: current.wind_speed_10m,
-      feelsLike: current.apparent_temperature,
+      feelsLike: Math.round(current.apparent_temperature * 10) / 10,
       units: units === 'fahrenheit' ? '°F' : '°C',
       lastUpdated: new Date().toLocaleTimeString(),
     };
   } catch (error) {
-    throw new Error(`Weather service error: ${(error as Error).message}`);
+    throw new Error(`Weather service: ${(error as Error).message}`);
   }
 }

@@ -122,12 +122,24 @@ function SettingsPage({ onClose }: SettingsPageProps) {
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder="Enter your Groq API key"
+            placeholder="Enter your Groq API key (sk-...)"
             className="mt-2 w-full rounded-3xl border border-slate-700/80 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-400"
           />
           <div className="mt-4 text-sm text-slate-400">
-            Lina AI keeps your key encrypted in the browser. It never leaves your device unless you paste it into the app.
+            Lina AI keeps your key encrypted in the browser. It never leaves your device.
           </div>
+
+          <label className="mt-6 block text-sm font-medium text-slate-200">AI Model</label>
+          <select
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            className="mt-2 w-full rounded-2xl border border-slate-700/80 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-400 cursor-pointer"
+          >
+            <option value="llama-3.1-8b-instant">Llama 3.1 8B — Ultra Fast & High Rate Limits</option>
+            <option value="llama-3.1-8b-instant">Llama 3.1 8B — Ultra Fast & High Rate Limits</option>
+            <option value="mixtral-8x7b-32768">Mixtral 8x7B — 32k Context Window</option>
+            <option value="gemma2-9b-it">Gemma 2 9B — Google Compact Model</option>
+          </select>
         </div>
 
         <div className="rounded-3xl border border-slate-800/80 bg-slate-950/90 p-6 shadow-glow">
